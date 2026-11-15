@@ -7,8 +7,8 @@ in deployment configuration rather than reusable code.
 ## Project boundaries
 
 - Portal owns its Site and Repeater models and backend behavior.
-- Public models and cross-product code belong in the separate `pyCommon`
-  project; HamClub and HamNetControl behavior does not belong here.
+- Public models and cross-product code belong in shared libraries; product-
+  specific behavior belongs in its own repository.
 - The web application does not expose privileged administrative CLI functions.
   `portal-admin` provides explicit local maintenance commands.
 - The OpenAPI document is generated from the route registrations and Marshmallow
