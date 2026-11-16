@@ -1,0 +1,14 @@
+.git
+.venv
+.pytest_cache
+.ruff_cache
+__pycache__
+*.py[cod]
+.env
+.secrets.toml
+portal.db
+dist
+build
+*.egg-info
+tests
+api

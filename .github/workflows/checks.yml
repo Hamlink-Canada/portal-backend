@@ -4,10 +4,41 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+  release:
+    types: [published]
 permissions:
   contents: read
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  dependency:
+    runs-on: ubuntu-latest
+    outputs:
+      revision: ${{ steps.resolved.outputs.revision }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: Portal-Backend
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - id: dependency
+        run: echo "ref=$(python Portal-Backend/scripts/dependency.py)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Hamlink-Canada/pyCommon
+          ref: ${{ steps.dependency.outputs.ref }}
+          path: pyCommon
+          persist-credentials: false
+      - id: resolved
+        run: |
+          revision=$(git -C pyCommon rev-parse HEAD)
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "pyCommon main resolved to $revision" >> "$GITHUB_STEP_SUMMARY"
   test:
+    needs: dependency
     env:
       UV_PYTHON: ${{ matrix.python }}
     runs-on: ubuntu-latest
@@ -22,7 +53,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Hamlink-Canada/pyCommon
-          ref: main
+          ref: ${{ needs.dependency.outputs.revision }}
           path: pyCommon
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -39,3 +70,80 @@ jobs:
         working-directory: Portal-Backend
       - run: uv build
         working-directory: Portal-Backend
+
+  image:
+    needs: [dependency, test]
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: Portal-Backend
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Hamlink-Canada/pyCommon
+          ref: ${{ needs.dependency.outputs.revision }}
+          path: pyCommon
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.12.21'
+      - run: uv sync --locked --python 3.13
+        working-directory: Portal-Backend
+      - name: Build and smoke-test both image architectures
+        working-directory: Portal-Backend
+        run: |
+          for platform in linux/amd64 linux/arm64; do
+            docker buildx build --load --platform "$platform" --build-context pycommon=../pyCommon --tag portal-backend:check .
+            RPT_TEST_IMAGE=portal-backend:check uv run --locked pytest tests/test_container.py
+          done
+      - id: tags
+        env:
+          REF: ${{ github.event.release.tag_name || github.ref_name }}
+          SHA: ${{ github.sha }}
+          RELEASE: ${{ github.event_name == 'release' }}
+          PRERELEASE: ${{ github.event.release.prerelease || false }}
+        run: |
+          image=ghcr.io/hamlink-canada/portal-backend
+          if [ "$RELEASE" = true ]; then
+            if ! printf '%s' "$REF" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$'; then
+              echo 'Invalid release version' >&2
+              exit 1
+            fi
+          fi
+          {
+            echo 'tags<<EOF'
+            echo "$image:sha-$SHA"
+            if [ "$RELEASE" = true ]; then
+              version=${REF#v}
+              echo "$image:$version"
+              if [ "$PRERELEASE" != true ] && ! printf '%s' "$version" | grep -q -- '-'; then
+                echo "$image:latest"
+              fi
+            fi
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        if: github.event_name == 'release'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./Portal-Backend
+          build-contexts: pycommon=./pyCommon
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'release' }}
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: VCS_REF=${{ github.sha }}
+          provenance: true

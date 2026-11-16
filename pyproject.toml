@@ -13,6 +13,7 @@ dependencies = [
   "apispec>=6.8,<7",
   "Flask>=3.1.3,<4",
   "flask-smorest>=0.47,<0.48",
+  "gunicorn>=23,<24",
   "marshmallow>=4,<5",
   "SQLAlchemy>=2.1.8,<2.2",
   "alembic>=1.20.1,<2",
@@ -29,7 +30,6 @@ otel = [
   "opentelemetry-exporter-otlp-proto-grpc>=1.30,<2",
   "opentelemetry-distro>=0.51b0",
   "opentelemetry-instrumentation-flask>=0.51b0",
-  "opentelemetry-instrumentation-sqlalchemy>=0.51b0",
   "opentelemetry-instrumentation-urllib>=0.51b0",
   "opentelemetry-instrumentation-system-metrics>=0.51b0",
   "opentelemetry-instrumentation-logging>=0.51b0",
@@ -37,6 +37,7 @@ otel = [
 
 [project.scripts]
 portal-admin = "portal_backend.admin_cli:main"
+portal-migrate = "portal_backend.migrate_cli:main"
 
 [dependency-groups]
 dev = ["pytest>=9.2,<10", "ruff>=0.17.4,<0.18", "build>=1.6,<2"]
