@@ -2,6 +2,7 @@
 
 import pytest
 
+from portal_backend.app import validate_production_settings
 from portal_backend.config import DEFAULTS, flask_config, load_settings
 
 
@@ -68,3 +69,27 @@ def test_flask_config_maps_all_configured_keys():
     assert mapped["PORTAL_DATABASE_URL"] == "sqlite:///example.db"
     assert mapped["PORTAL_BIND_HOST"] == "0.0.0.0"
     assert mapped["PORTAL_BIND_PORT"] == 5050
+
+
+def test_production_app_requires_core_configuration():
+    with pytest.raises(RuntimeError, match="PORTAL_DATABASE_URL.*PORTAL_OIDC_ISSUER"):
+        validate_production_settings(
+            {
+                "PORTAL_ENVIRONMENT": "production",
+                "PORTAL_DATABASE_URL": None,
+                "PORTAL_OIDC_ISSUER": "",
+                "PORTAL_API_AUDIENCE": "",
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"TESTING": True, "PORTAL_ENVIRONMENT": "production"},
+        {"PORTAL_ENVIRONMENT": "development"},
+        {"PORTAL_ENVIRONMENT": "development", "PORTAL_DEV_MODE": True},
+    ],
+)
+def test_nonproduction_and_test_modes_can_omit_production_configuration(config):
+    validate_production_settings(config)

@@ -19,6 +19,25 @@ from portal_backend.routes import (
 from portal_backend.session import session_bp
 
 
+def validate_production_settings(config):
+    """Fail fast when a production WSGI app is missing critical settings."""
+    if (
+        config.get("TESTING")
+        or config.get("PORTAL_DEV_MODE")
+        or config.get("PORTAL_ENVIRONMENT") != "production"
+    ):
+        return
+
+    required = (
+        "PORTAL_DATABASE_URL",
+        "PORTAL_OIDC_ISSUER",
+        "PORTAL_API_AUDIENCE",
+    )
+    missing = [name for name in required if not str(config.get(name) or "").strip()]
+    if missing:
+        raise RuntimeError("Missing required production settings: " + ", ".join(missing))
+
+
 def create_app(config=None):
     app = Flask(__name__)
     app.config.from_mapping(flask_config(load_settings()), JSON_SORT_KEYS=False)

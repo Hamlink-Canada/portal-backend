@@ -11,6 +11,9 @@ in deployment configuration rather than reusable code.
   specific behavior belongs in its own repository.
 - The web application does not expose privileged administrative CLI functions.
   `portal-admin` provides explicit local maintenance commands.
+- The production image runs the app factory with Gunicorn and includes the
+  explicit `portal-migrate` command; application startup never applies schema
+  migrations.
 - The OpenAPI document is generated from the route registrations and Marshmallow
   schemas with the Flask-Smorest CLI.
 
@@ -113,8 +116,46 @@ file:
 
 ```bash
 rpt-common-migrate upgrade --url-file /run/secrets/migration-url
-uv run alembic -c alembic.ini upgrade head
+portal-migrate upgrade --url-file /run/secrets/portal-migration-url
 ```
+
+Portal migration credentials are optional. `portal-migrate` reads a mounted URL
+file when `--url-file` is supplied, otherwise it uses
+`PORTAL_MIGRATION_DATABASE_URL` when set, and falls back to
+`PORTAL_DATABASE_URL`. This supports deployments that use one database account
+for both migration and application access. Keep migrations explicit and run the
+shared migration before Portal's migration.
+
+### Production image
+
+The production image runs the Flask app factory with Gunicorn's synchronous
+workers and OpenTelemetry auto-instrumentation. It runs as UID/GID `10001`,
+listens on `0.0.0.0:5000` by default, and supports `WEB_CONCURRENCY` to configure
+the worker count. The image requires `PORTAL_DATABASE_URL`,
+`PORTAL_OIDC_ISSUER`, and `PORTAL_API_AUDIENCE` at production startup. It
+includes a Docker health check for `/api/v1/health`; this endpoint checks that
+the process responds, not that the database is reachable.
+
+Build locally from this repository with the sibling `pyCommon` checkout:
+
+```bash
+docker buildx build --load \
+  --build-context pycommon=../pyCommon \
+  --tag portal-backend:local .
+```
+
+GitHub Actions builds and smoke-checks AMD64 and ARM64 images for pull requests
+and pushes to `main`. Published GitHub releases publish version and commit-SHA
+tags to `ghcr.io/hamlink-canada/portal-backend`; stable releases also update
+`latest`. Release builds use one resolved `pyCommon` commit for tests and the
+image.
+
+For local container runs, provide the required settings as environment
+variables or mount `settings.toml` and `.secrets.toml` read-only under
+`/config`. The image sets `PORTAL_CONFIG_DIR=/config`; environment variables
+override values from those files. Telemetry exporters are disabled by default;
+enable tracing or metrics by configuring the standard `OTEL_*` environment
+variables for the selected exporter.
 
 ### Backend development preview
 
