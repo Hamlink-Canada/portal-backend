@@ -39,7 +39,7 @@ RUN chmod 0755 /usr/local/bin/portal-backend-entrypoint
 
 USER 10001:10001
 EXPOSE 5000/tcp
-HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
-    CMD ["python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORTAL_BIND_PORT','5000')+'/api/v1/health', timeout=2)"]
+HEALTHCHECK --interval=30s --timeout=15s --start-period=15s --retries=3 \
+    CMD ["python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORTAL_BIND_PORT','5000')+'/api/v1/health', timeout=10)"]
 ENTRYPOINT ["/usr/local/bin/portal-backend-entrypoint"]
 CMD ["serve"]
