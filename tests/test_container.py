@@ -54,6 +54,10 @@ def test_nonroot_image_starts_and_passes_healthcheck():
             name,
             "--network",
             "none",
+            "--health-interval",
+            "2s",
+            "--health-start-period",
+            "2m",
             "--env",
             "PORTAL_DATABASE_URL=sqlite:////tmp/portal-smoke.sqlite",
             "--env",
@@ -68,7 +72,9 @@ def test_nonroot_image_starts_and_passes_healthcheck():
             "OTEL_LOGS_EXPORTER=none",
             image,
         )
-        deadline = time.monotonic() + 45
+        # ARM64 runs under emulation on the x86 GitHub-hosted runner, so the
+        # application can take longer to import and answer its first probe.
+        deadline = time.monotonic() + 180
         while True:
             info = json.loads(docker("inspect", name))[0]
             health = info["State"].get("Health", {}).get("Status")
