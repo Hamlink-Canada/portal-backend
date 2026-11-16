@@ -56,6 +56,8 @@ def test_nonroot_image_starts_and_passes_healthcheck():
             "none",
             "--health-interval",
             "2s",
+            "--health-timeout",
+            "15s",
             "--health-start-period",
             "2m",
             "--env",
@@ -74,7 +76,7 @@ def test_nonroot_image_starts_and_passes_healthcheck():
         )
         # ARM64 runs under emulation on the x86 GitHub-hosted runner, so the
         # application can take longer to import and answer its first probe.
-        deadline = time.monotonic() + 180
+        deadline = time.monotonic() + 300
         while True:
             info = json.loads(docker("inspect", name))[0]
             health = info["State"].get("Health", {}).get("Status")
@@ -84,7 +86,15 @@ def test_nonroot_image_starts_and_passes_healthcheck():
                 logs = subprocess.run(
                     ["docker", "logs", name], capture_output=True, text=True
                 )
-                pytest.fail(f"container did not become healthy:\n{logs.stdout}\n{logs.stderr}")
+                health_logs = info["State"].get("Health", {}).get("Log", [])
+                health_details = "\n".join(
+                    f"exit={entry.get('ExitCode')} output={entry.get('Output', '').strip()}"
+                    for entry in health_logs
+                )
+                pytest.fail(
+                    f"container did not become healthy:\n{logs.stdout}\n{logs.stderr}"
+                    f"\nhealth check:\n{health_details}"
+                )
             time.sleep(0.25)
 
         assert info["Config"]["User"] == "10001:10001"
