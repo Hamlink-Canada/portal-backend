@@ -224,10 +224,13 @@ def initialize_dev_preview(app):
     if not app.config.get("PORTAL_DEV_MODE"):
         return
     if app.config.get("PORTAL_ENVIRONMENT") != "development" or not (
-        app.config.get("DEBUG") or app.config.get("TESTING")
+        app.config.get("DEBUG")
+        or app.config.get("TESTING")
+        or app.config.get("PORTAL_DEV_PREVIEW_WSGI")
     ):
         raise RuntimeError(
-            "Backend preview requires PORTAL_ENVIRONMENT=development and Flask debug mode"
+            "Backend preview requires PORTAL_ENVIRONMENT=development and Flask debug/test mode "
+            "or PORTAL_DEV_PREVIEW_WSGI=true"
         )
 
     engine = app.extensions["portal_database"]
