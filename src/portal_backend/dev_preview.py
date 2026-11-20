@@ -2,6 +2,7 @@
 
 import secrets
 from datetime import datetime, timedelta, timezone
+from importlib.util import find_spec
 from pathlib import Path
 
 from alembic import command
@@ -34,15 +35,17 @@ USERS = (
 
 
 def _run_migrations(connection):
-    root = Path(__file__).resolve().parents[3]
+    common_package = find_spec("rpt_common")
+    if common_package is None or common_package.origin is None:
+        raise RuntimeError("The rpt_common package is required for preview migrations")
+    common_migrations = Path(common_package.origin).parent / "migrations"
+    application_root = Path.cwd()
     common_config = Config()
-    common_config.set_main_option(
-        "script_location", str(root / "pyCommon/src/rpt_common/migrations")
-    )
+    common_config.set_main_option("script_location", str(common_migrations))
     common_config.attributes["connection"] = connection
     command.upgrade(common_config, "head")
 
-    portal_config = Config(str(root / "Portal-Backend/alembic.ini"))
+    portal_config = Config(str(application_root / "alembic.ini"))
     portal_config.set_main_option("sqlalchemy.url", "sqlite:///:memory:")
     portal_config.attributes["connection"] = connection
     command.upgrade(portal_config, "head")

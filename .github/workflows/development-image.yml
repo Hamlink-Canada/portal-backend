@@ -46,8 +46,7 @@ jobs:
         run: |
           branch_slug=$(printf '%s' "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^[.-]+//; s/[.-]+$//' | cut -c1-60)
           branch_slug=${branch_slug:-branch}
-          branch_hash=$(printf '%s' "$BRANCH_NAME" | sha256sum | cut -c1-12)
-          branch_tag="dev-$branch_slug-$branch_hash"
+          branch_tag="dev-$branch_slug"
           image="ghcr.io/hamlink-canada/portal-backend"
           {
             echo 'tags<<EOF'
@@ -63,5 +62,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.tags.outputs.tags }}
-          build-args: VCS_REF=${{ github.sha }}
+          build-args: |
+            VCS_REF=${{ github.sha }}
+            PORTAL_DEV_PREVIEW=true
           provenance: true

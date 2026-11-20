@@ -45,11 +45,18 @@ def create_app(config=None):
         app.config.update(config)
 
     if app.config.get("PORTAL_DEV_MODE"):
+        if not app.config.get("PORTAL_DEV_PREVIEW_AVAILABLE"):
+            raise RuntimeError("This backend image does not include development preview support")
         if app.config.get("PORTAL_ENVIRONMENT") != "development":
             raise ValueError("PORTAL_DEV_MODE is only allowed with PORTAL_ENVIRONMENT=development")
-        if not (app.config.get("DEBUG") or app.config.get("TESTING")):
+        if not (
+            app.config.get("DEBUG")
+            or app.config.get("TESTING")
+            or app.config.get("PORTAL_DEV_PREVIEW_WSGI")
+        ):
             raise RuntimeError(
-                "Backend preview cannot start outside a debug or test Flask app in development"
+                "Backend preview cannot start outside a debug or test Flask app "
+                "unless explicit WSGI preview mode is enabled"
             )
         app.config["PORTAL_DATABASE_URL"] = "sqlite:///:memory:"
 
