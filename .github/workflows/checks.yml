@@ -109,7 +109,6 @@ jobs:
       - id: tags
         env:
           REF: ${{ github.event.release.tag_name || github.ref_name }}
-          SHA: ${{ github.sha }}
           RELEASE: ${{ github.event_name == 'release' }}
           PRERELEASE: ${{ github.event.release.prerelease || false }}
         run: |
@@ -122,7 +121,6 @@ jobs:
           fi
           {
             echo 'tags<<EOF'
-            echo "$image:sha-$SHA"
             if [ "$RELEASE" = true ]; then
               version=${REF#v}
               echo "$image:$version"
