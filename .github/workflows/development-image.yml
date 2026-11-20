@@ -64,7 +64,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.tags.outputs.tags }}
-          build-args: VCS_REF=${{ github.sha }}
+          build-args: |
+            VCS_REF=${{ github.sha }}
+            PORTAL_DEV_PREVIEW=true
           provenance: true
       - name: Clean up legacy image versions for this branch
         env:

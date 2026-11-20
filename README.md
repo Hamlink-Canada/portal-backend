@@ -159,23 +159,23 @@ variables for the selected exporter.
 
 ### Backend development preview
 
-The mock OIDC preview is opt-in and refuses to start unless both
-`PORTAL_ENVIRONMENT=development` and `PORTAL_DEV_MODE=true` are set and Flask is
-running with debug enabled (or under tests). The normal Python entry point turns
-on Flask debug mode only when `PORTAL_DEV_MODE=true`; production WSGI startup
-does not satisfy the guard. Preview startup forces `sqlite:///:memory:`, applies
-the current pyCommon and Portal Alembic migrations to the shared in-memory
-connection, and seeds the preview records. The user picker issues a short-lived
-RS256 access token signed by an ephemeral process key. The API validates that
-token through the same bearer-token validation path used for the configured
-OIDC provider. Preview routes are not registered when the mode is off.
+The mock OIDC preview is included in branch-build images and omitted from tagged
+release images. It is opt-in at runtime and requires
+`PORTAL_ENVIRONMENT=development` and `PORTAL_DEV_MODE=true`. Local debug and test
+apps can enable it directly; a WSGI server also requires the explicit
+`PORTAL_DEV_PREVIEW_WSGI=true` setting. Preview startup forces
+`sqlite:///:memory:`, applies the current pyCommon and Portal Alembic migrations
+to the shared in-memory connection, and seeds the preview records. The user
+picker issues a short-lived RS256 access token signed by an ephemeral process
+key. The API validates that token through the same bearer-token validation path
+used for the configured OIDC provider. Preview routes are not registered when
+the mode is off.
 
 CRUD operations use the standard backend API and remain visible for the life of
 the process. Restarting the backend discards edits and restores the original
-seed. For local frontend review, enable `VITE_PORTAL_DEV_MODE=true` and
-`VITE_PORTAL_BACKEND_PREVIEW=true` in the frontend `.env`; these options are
-active only under Vite's development server and are excluded from production
-build behavior. Do not deploy either preview flag.
+seed. Branch-build frontend images include the preview sign-in flow; tagged
+release images compile it out. The frontend build enables the flow with
+`VITE_PORTAL_DEV_MODE=true` and `VITE_PORTAL_BACKEND_PREVIEW=true`.
 
 Start the backend preview with:
 

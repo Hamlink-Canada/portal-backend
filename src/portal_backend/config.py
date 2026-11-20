@@ -25,6 +25,8 @@ DEFAULTS = {
     "system_super_admin_claim_value": "System Super Admin",
     "environment": "production",
     "dev_mode": False,
+    "dev_preview_available": True,
+    "dev_preview_wsgi": False,
 }
 
 
@@ -55,6 +57,18 @@ def load_settings(**overrides):
             setattr(settings, key, None)
 
     settings.dev_mode = str(settings.dev_mode).strip().lower() in {"1", "true", "yes", "on"}
+    settings.dev_preview_available = str(settings.dev_preview_available).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    settings.dev_preview_wsgi = str(settings.dev_preview_wsgi).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     settings.environment = str(settings.environment).strip().lower()
     if settings.dev_mode and settings.environment != "development":
         raise ValueError("PORTAL_DEV_MODE is only allowed with PORTAL_ENVIRONMENT=development")
