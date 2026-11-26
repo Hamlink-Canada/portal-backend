@@ -356,7 +356,7 @@ def test_system_admin_cannot_change_site_identity_after_repeater_creation(
         assert session.get(Site, site_pk).site_id == "25050"
 
 
-def test_system_admin_can_reassign_a_previously_reserved_unassigned_site_id(
+def test_system_admin_can_reassign_reserved_site_id_without_changing_site_code(
     client, session_factory, site_factory
 ):
     from portal_backend.models import SiteIdAllocation
@@ -384,7 +384,7 @@ def test_system_admin_can_reassign_a_previously_reserved_unassigned_site_id(
         assert session.get(Site, site_pk).site_id == "26999"
         assert session.get(SiteIdAllocation, "25010").site_pk is None
         assert session.get(SiteIdAllocation, "26999").site_pk == site_pk
-        assert session.get(SiteIdAllocation, "26999").site_code == "26"
+        assert session.get(SiteIdAllocation, "26999").site_code == "25"
 
 
 def test_site_code_and_explicit_id_change_does_not_allocate_intermediate_id(
