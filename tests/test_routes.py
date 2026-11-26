@@ -338,6 +338,24 @@ def test_site_id_edits_are_system_admin_only_and_keep_allocations_consistent(
         assert session.get(Site, site_pk).site_id == "25003"
 
 
+def test_system_admin_cannot_change_site_identity_after_repeater_creation(
+    client, session_factory, site_factory
+):
+    from portal_backend.models import Repeater
+
+    site_pk = site_factory(owner="alice", site_id="25050")
+    with session_factory() as session, session.begin():
+        session.add(Repeater(node_id=250500, site_id=site_pk, call_sign="VE3ABC"))
+
+    response = client.patch(
+        f"/api/v1/sites/{site_pk}", headers=auth("root"), json={"site_id": "26050"}
+    )
+    assert response.status_code == 409
+    assert response.json["error"] == "site_id_locked_after_repeater_creation"
+    with session_factory() as session:
+        assert session.get(Site, site_pk).site_id == "25050"
+
+
 def test_system_admin_can_reassign_a_previously_reserved_unassigned_site_id(
     client, session_factory, site_factory
 ):
@@ -365,6 +383,25 @@ def test_system_admin_can_reassign_a_previously_reserved_unassigned_site_id(
     with session_factory() as session:
         assert session.get(Site, site_pk).site_id == "26999"
         assert session.get(SiteIdAllocation, "25010").site_pk is None
+        assert session.get(SiteIdAllocation, "26999").site_pk == site_pk
+        assert session.get(SiteIdAllocation, "26999").site_code == "26"
+
+
+def test_site_code_and_explicit_id_change_does_not_allocate_intermediate_id(
+    client, session_factory, site_factory, monkeypatch
+):
+    from portal_backend.models import SiteIdAllocation
+
+    monkeypatch.setattr("portal_backend.utils.site_ids.secrets.randbelow", lambda limit: 42)
+    site_pk = site_factory(owner="alice", site_id="25010")
+    response = client.patch(
+        f"/api/v1/sites/{site_pk}",
+        headers=auth("root"),
+        json={"site_code": "26", "site_id": "26999"},
+    )
+    assert response.status_code == 200
+    with session_factory() as session:
+        assert session.get(SiteIdAllocation, "26042") is None
         assert session.get(SiteIdAllocation, "26999").site_pk == site_pk
 
 

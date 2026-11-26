@@ -47,13 +47,21 @@ def test_jwks_cache_rejects_mismatched_discovery_issuer(monkeypatch):
 
 
 def test_jwks_cache_rejects_oversized_or_non_object_documents(monkeypatch):
-    monkeypatch.setattr(auth, "urlopen", lambda *args, **kwargs: _Response(b"[]"))
+    class Opener:
+        def open(self, *args, **kwargs):
+            return _Response(b"[]")
+
+    monkeypatch.setattr(auth, "build_opener", lambda *args: Opener())
     with pytest.raises(auth.JwksUnavailable, match="JSON object"):
         auth.JwksCache._fetch_json("https://issuer.example/keys")
     monkeypatch.setattr(
         auth,
-        "urlopen",
-        lambda *args, **kwargs: _Response(b" " * (auth.JWKS_MAX_BYTES + 1)),
+        "build_opener",
+        lambda *args: type(
+            "Opener",
+            (),
+            {"open": lambda self, *a, **k: _Response(b" " * (auth.JWKS_MAX_BYTES + 1))},
+        )(),
     )
     with pytest.raises(auth.JwksUnavailable, match="exceeds"):
         auth.JwksCache._fetch_json("https://issuer.example/keys")
@@ -68,13 +76,41 @@ def test_jwks_urls_require_https_except_loopback_preview():
 
 
 def test_jwks_fetch_rejects_https_downgrade_redirect(monkeypatch):
-    class Redirected(_Response):
-        def geturl(self):
-            return "http://issuer.example/keys"
+    class Opener:
+        def __init__(self, handler):
+            self.handler = handler
 
-    monkeypatch.setattr(auth, "urlopen", lambda *args, **kwargs: Redirected(b"{}"))
+        def open(self, request, **kwargs):
+            self.handler.redirect_request(
+                request, None, 302, "Found", {}, "http://issuer.example/keys"
+            )
+
+    monkeypatch.setattr(auth, "build_opener", lambda handler: Opener(handler()))
     with pytest.raises(auth.JwksUnavailable, match="HTTPS"):
         auth.JwksCache._fetch_json("https://issuer.example/keys")
+
+
+def test_jwks_fetch_rejects_https_http_https_redirect_chain(monkeypatch):
+    followed = []
+
+    class Opener:
+        def __init__(self, handler):
+            self.handler = handler
+
+        def open(self, request, **kwargs):
+            first = self.handler.redirect_request(
+                request, None, 302, "Found", {}, "http://attacker.example/redirect"
+            )
+            followed.append(first)
+            if first:
+                self.handler.redirect_request(
+                    first, None, 302, "Found", {}, "https://attacker.example/keys"
+                )
+
+    monkeypatch.setattr(auth, "build_opener", lambda handler: Opener(handler()))
+    with pytest.raises(auth.JwksUnavailable, match="HTTPS"):
+        auth.JwksCache._fetch_json("https://issuer.example/keys")
+    assert followed == []
 
 
 class _Response:

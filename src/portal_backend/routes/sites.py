@@ -249,7 +249,7 @@ def update_site(data, site_pk):
     claims = g.access_token_claims
     try:
         with get_session_factory()() as session:
-            site = session.get(Site, site_pk)
+            site = session.scalar(select(Site).where(Site.id == site_pk).with_for_update())
             if site is None or not can_manage_site(session, site, claims):
                 return failure("site_not_found", 404)
 
@@ -278,7 +278,7 @@ def update_site(data, site_pk):
             if "numbering_mode" in data and data["numbering_mode"] != site.numbering_mode:
                 if not is_system_super_admin(claims):
                     return failure("site_identity_system_admin_required", 403)
-                if repeaters_exist and not is_system_super_admin(claims):
+                if repeaters_exist:
                     return failure("numbering_mode_locked_after_repeater_creation", 409)
                 site.numbering_mode = data["numbering_mode"]
 
@@ -313,7 +313,7 @@ def update_site(data, site_pk):
             if identity_change:
                 if not is_system_super_admin(claims):
                     return failure("site_identity_system_admin_required", 403)
-                if repeaters_exist and not is_system_super_admin(claims):
+                if repeaters_exist:
                     return failure("site_code_locked_after_repeater_creation", 409)
                 options = site_code_options(
                     session, new_country, current_app.config.get("PORTAL_SITE_CODES_FILE")
@@ -342,12 +342,13 @@ def update_site(data, site_pk):
                 site.latitude = latitude
                 site.longitude = longitude
                 session.flush()
-                allocate_site_id(
-                    session,
-                    site,
-                    selected_site_code=selected_code,
-                    mapping_path=current_app.config.get("PORTAL_SITE_CODES_FILE"),
-                )
+                if "site_id" not in data:
+                    allocate_site_id(
+                        session,
+                        site,
+                        selected_site_code=selected_code,
+                        mapping_path=current_app.config.get("PORTAL_SITE_CODES_FILE"),
+                    )
             elif location_changed:
                 site.grid_square = grid
                 site.latitude = latitude
@@ -356,6 +357,8 @@ def update_site(data, site_pk):
             if "site_id" in data:
                 requested_site_id = data["site_id"]
                 if requested_site_id != site.site_id:
+                    if repeaters_exist:
+                        return failure("site_id_locked_after_repeater_creation", 409)
                     assigned_site = session.scalar(
                         select(Site.id).where(
                             Site.site_id == requested_site_id,
@@ -376,13 +379,13 @@ def update_site(data, site_pk):
                         allocation = SiteIdAllocation(
                             site_id=requested_site_id,
                             country_code=site.country_code,
-                            site_code=site.site_code,
+                            site_code=requested_site_id[:2],
                             site_pk=site.id,
                         )
                         session.add(allocation)
                     else:
                         allocation.country_code = site.country_code
-                        allocation.site_code = site.site_code
+                        allocation.site_code = requested_site_id[:2]
                         allocation.site_pk = site.id
                     site.site_id = requested_site_id
 

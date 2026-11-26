@@ -6,7 +6,7 @@ import time
 from functools import wraps
 from ipaddress import ip_address
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from authlib.jose import JsonWebKey, JsonWebToken
 from authlib.jose.errors import JoseError
@@ -122,8 +122,14 @@ class JwksCache:
     @staticmethod
     def _fetch_json(url, *, allow_local_http=False):
         JwksCache._validate_url(url, allow_local_http)
+
+        class ValidatingRedirectHandler(HTTPRedirectHandler):
+            def redirect_request(self, request, response, code, message, headers, new_url):
+                JwksCache._validate_url(new_url, allow_local_http)
+                return super().redirect_request(request, response, code, message, headers, new_url)
+
         request = Request(url, headers={"Accept": "application/json"})
-        with urlopen(request, timeout=5) as response:
+        with build_opener(ValidatingRedirectHandler).open(request, timeout=5) as response:
             JwksCache._validate_url(getattr(response, "geturl", lambda: url)(), allow_local_http)
             body = response.read(JWKS_MAX_BYTES + 1)
         if len(body) > JWKS_MAX_BYTES:
