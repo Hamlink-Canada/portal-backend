@@ -1,0 +1,174 @@
+{
+  "US": {
+    "sitecodes": ["30", "34"]
+  },
+  "CA": {
+    "sitecodes": ["31"]
+  },
+  "JP": {
+    "sitecodes": ["32", "35"]
+  },
+
+  "DE": {
+    "sitecodes": ["33", "36"]
+  },
+  "GB": {
+    "sitecodes": ["33"]
+  },
+  "FR": {
+    "sitecodes": ["33"]
+  },
+  "IT": {
+    "sitecodes": ["33"]
+  },
+  "NL": {
+    "sitecodes": ["33"]
+  },
+  "CH": {
+    "sitecodes": ["33"]
+  },
+  "AT": {
+    "sitecodes": ["33"]
+  },
+
+  "SE": {
+    "sitecodes": ["40"]
+  },
+  "NO": {
+    "sitecodes": ["40"]
+  },
+  "FI": {
+    "sitecodes": ["40"]
+  },
+  "DK": {
+    "sitecodes": ["40"]
+  },
+
+  "ES": {
+    "sitecodes": ["41"]
+  },
+  "PT": {
+    "sitecodes": ["41"]
+  },
+
+  "PL": {
+    "sitecodes": ["42"]
+  },
+  "CZ": {
+    "sitecodes": ["42"]
+  },
+  "SK": {
+    "sitecodes": ["42"]
+  },
+  "HU": {
+    "sitecodes": ["42"]
+  },
+  "RO": {
+    "sitecodes": ["42"]
+  },
+
+  "AU": {
+    "sitecodes": ["43"]
+  },
+  "NZ": {
+    "sitecodes": ["43"]
+  },
+
+  "BR": {
+    "sitecodes": ["44", "45"]
+  },
+
+  "AR": {
+    "sitecodes": ["45"]
+  },
+  "CL": {
+    "sitecodes": ["45"]
+  },
+  "CO": {
+    "sitecodes": ["45"]
+  },
+  "PE": {
+    "sitecodes": ["45"]
+  },
+  "UY": {
+    "sitecodes": ["45"]
+  },
+
+  "CN": {
+    "sitecodes": ["50"]
+  },
+  "KR": {
+    "sitecodes": ["50"]
+  },
+  "TW": {
+    "sitecodes": ["50"]
+  },
+
+  "IN": {
+    "sitecodes": ["51"]
+  },
+  "TH": {
+    "sitecodes": ["51"]
+  },
+  "MY": {
+    "sitecodes": ["51"]
+  },
+  "PH": {
+    "sitecodes": ["51"]
+  },
+  "ID": {
+    "sitecodes": ["51"]
+  },
+  "VN": {
+    "sitecodes": ["51"]
+  },
+
+  "ZA": {
+    "sitecodes": ["60"]
+  },
+  "NG": {
+    "sitecodes": ["60"]
+  },
+  "KE": {
+    "sitecodes": ["60"]
+  },
+  "EG": {
+    "sitecodes": ["60"]
+  },
+
+  "IL": {
+    "sitecodes": ["61"]
+  },
+  "SA": {
+    "sitecodes": ["61"]
+  },
+  "AE": {
+    "sitecodes": ["61"]
+  },
+  "TR": {
+    "sitecodes": ["61"]
+  },
+
+  "MX": {
+    "sitecodes": ["62"]
+  },
+  "CR": {
+    "sitecodes": ["62"]
+  },
+  "PA": {
+    "sitecodes": ["62"]
+  },
+  "DO": {
+    "sitecodes": ["62"]
+  },
+
+  "FJ": {
+    "sitecodes": ["63"]
+  },
+  "PG": {
+    "sitecodes": ["63"]
+  },
+  "WS": {
+    "sitecodes": ["63"]
+  }
+}
