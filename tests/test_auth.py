@@ -19,7 +19,9 @@ def test_jwks_cache_discovers_keys_once_and_caches_them(monkeypatch):
     }
     fetched = []
     imported = object()
-    monkeypatch.setattr(cache, "_fetch_json", lambda url: fetched.append(url) or responses[url])
+    monkeypatch.setattr(
+        cache, "_fetch_json", lambda url, **kwargs: fetched.append(url) or responses[url]
+    )
     monkeypatch.setattr(auth.JsonWebKey, "import_key_set", lambda value: imported)
 
     assert cache.get() is imported
@@ -35,7 +37,10 @@ def test_jwks_cache_rejects_mismatched_discovery_issuer(monkeypatch):
     monkeypatch.setattr(
         cache,
         "_fetch_json",
-        lambda url: {"issuer": "https://attacker.example", "jwks_uri": "https://attacker/keys"},
+        lambda url, **kwargs: {
+            "issuer": "https://attacker.example",
+            "jwks_uri": "https://attacker/keys",
+        },
     )
     with pytest.raises(auth.JwksUnavailable, match="issuer does not match"):
         cache.get()
@@ -45,13 +50,30 @@ def test_jwks_cache_rejects_oversized_or_non_object_documents(monkeypatch):
     monkeypatch.setattr(auth, "urlopen", lambda *args, **kwargs: _Response(b"[]"))
     with pytest.raises(auth.JwksUnavailable, match="JSON object"):
         auth.JwksCache._fetch_json("https://issuer.example/keys")
-
     monkeypatch.setattr(
         auth,
         "urlopen",
         lambda *args, **kwargs: _Response(b" " * (auth.JWKS_MAX_BYTES + 1)),
     )
     with pytest.raises(auth.JwksUnavailable, match="exceeds"):
+        auth.JwksCache._fetch_json("https://issuer.example/keys")
+
+
+def test_jwks_urls_require_https_except_loopback_preview():
+    with pytest.raises(auth.JwksUnavailable, match="HTTPS"):
+        auth.JwksCache._validate_url("http://issuer.example/keys")
+    auth.JwksCache._validate_url("http://127.0.0.1:8080/keys", allow_local_http=True)
+    with pytest.raises(auth.JwksUnavailable, match="HTTPS"):
+        auth.JwksCache._validate_url("http://issuer.example/keys", allow_local_http=True)
+
+
+def test_jwks_fetch_rejects_https_downgrade_redirect(monkeypatch):
+    class Redirected(_Response):
+        def geturl(self):
+            return "http://issuer.example/keys"
+
+    monkeypatch.setattr(auth, "urlopen", lambda *args, **kwargs: Redirected(b"{}"))
+    with pytest.raises(auth.JwksUnavailable, match="HTTPS"):
         auth.JwksCache._fetch_json("https://issuer.example/keys")
 
 
@@ -99,6 +121,7 @@ def test_access_token_validation_checks_issuer_subject_audience_and_claims(app, 
             "exp": 100,
         }
     )
+
     class FakeJWT:
         def __init__(self, algorithms):
             assert algorithms == ["RS256"]

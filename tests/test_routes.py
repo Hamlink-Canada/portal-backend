@@ -2,6 +2,7 @@
 
 import json
 
+import pytest
 from rpt_common.models import Entity, EntitySuperAdmin, NodeCredential
 from sqlalchemy import select
 
@@ -305,6 +306,75 @@ def test_site_create_validation_allocation_and_owner_policy(client, monkeypatch,
     ).json["name"] == "Renamed Site"
     with session_factory() as session:
         assert session.scalar(select(Site.site_id).where(Site.id == site_id)) == "25015"
+
+
+def test_site_id_edits_are_system_admin_only_and_keep_allocations_consistent(
+    client, session_factory, site_factory
+):
+    from portal_backend.models import SiteIdAllocation
+
+    site_pk = site_factory(owner="alice", site_id="25001")
+    other_site_pk = site_factory(owner="bob", site_id="25002")
+
+    denied = client.patch(
+        f"/api/v1/sites/{site_pk}", headers=auth(), json={"site_id": "25003"}
+    )
+    assert denied.status_code == 403
+
+    updated = client.patch(
+        f"/api/v1/sites/{site_pk}", headers=auth("root"), json={"site_id": "25003"}
+    )
+    assert updated.status_code == 200
+    assert updated.json["site_id"] == "25003"
+
+    duplicate = client.patch(
+        f"/api/v1/sites/{site_pk}", headers=auth("root"), json={"site_id": "25002"}
+    )
+    assert duplicate.status_code == 409
+    with session_factory() as session:
+        assert session.get(SiteIdAllocation, "25003").site_pk == site_pk
+        assert session.get(SiteIdAllocation, "25002") is None
+        assert session.get(Site, other_site_pk).site_id == "25002"
+        assert session.get(Site, site_pk).site_id == "25003"
+
+
+def test_system_admin_can_reassign_a_previously_reserved_unassigned_site_id(
+    client, session_factory, site_factory
+):
+    from portal_backend.models import SiteIdAllocation
+
+    site_pk = site_factory(owner="alice", site_id="25010")
+    with session_factory() as session, session.begin():
+        session.add_all(
+            [
+                SiteIdAllocation(
+                    site_id="25010", country_code="CA", site_code="25", site_pk=site_pk
+                ),
+                SiteIdAllocation(
+                    site_id="26999", country_code="CA", site_code="26", site_pk=None
+                ),
+            ]
+        )
+
+    updated = client.patch(
+        f"/api/v1/sites/{site_pk}", headers=auth("root"), json={"site_id": "26999"}
+    )
+    assert updated.status_code == 200
+    assert updated.json["site_id"] == "26999"
+
+    with session_factory() as session:
+        assert session.get(Site, site_pk).site_id == "26999"
+        assert session.get(SiteIdAllocation, "25010").site_pk is None
+        assert session.get(SiteIdAllocation, "26999").site_pk == site_pk
+
+
+@pytest.mark.parametrize("site_id", ["1234", "12A45", "１２３４５"])
+def test_site_id_edit_rejects_invalid_values(client, site_factory, site_id):
+    site_pk = site_factory(owner="alice", site_id="25020")
+    response = client.patch(
+        f"/api/v1/sites/{site_pk}", headers=auth("root"), json={"site_id": site_id}
+    )
+    assert response.status_code == 422
 
 
 def test_site_repeaters_and_repeaters_list_are_owner_scoped(client, site_factory):

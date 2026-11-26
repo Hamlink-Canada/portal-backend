@@ -4,6 +4,8 @@ import json
 import threading
 import time
 from functools import wraps
+from ipaddress import ip_address
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from authlib.jose import JsonWebKey, JsonWebToken
@@ -22,6 +24,7 @@ def _set_trace_attribute(key, value):
     span = trace.get_current_span()
     if span.is_recording():
         span.set_attribute(key, value)
+
 
 ALLOWED_ASYMMETRIC_ALGORITHMS = frozenset(
     {
@@ -48,9 +51,13 @@ class JwksUnavailable(Exception):
 class JwksCache:
     """Discover and cache a bounded in-memory copy of the provider's signing keys."""
 
-    def __init__(self, issuer, url=None):
+    def __init__(self, issuer, url=None, *, allow_local_http=False):
         self.issuer = issuer
         self.url = url
+        self.allow_local_http = allow_local_http
+        self._validate_url(issuer, allow_local_http)
+        if url:
+            self._validate_url(url, allow_local_http)
         self._key_set = None
         self._expires_at = 0.0
         self._lock = threading.Lock()
@@ -67,15 +74,23 @@ class JwksCache:
             try:
                 jwks_url = self.url
                 if not jwks_url:
+                    self._validate_url(
+                        f"{self.issuer.rstrip('/')}/.well-known/openid-configuration",
+                        self.allow_local_http,
+                    )
                     discovery = self._fetch_json(
-                        f"{self.issuer.rstrip('/')}/.well-known/openid-configuration"
+                        f"{self.issuer.rstrip('/')}/.well-known/openid-configuration",
+                        allow_local_http=self.allow_local_http,
                     )
                     if discovery.get("issuer") != self.issuer:
                         raise JwksUnavailable("discovery issuer does not match configuration")
                     jwks_url = discovery.get("jwks_uri")
                     if not isinstance(jwks_url, str) or not jwks_url:
                         raise JwksUnavailable("discovery document has no JWKS URI")
-                self._key_set = JsonWebKey.import_key_set(self._fetch_json(jwks_url))
+                self._validate_url(jwks_url, self.allow_local_http)
+                self._key_set = JsonWebKey.import_key_set(
+                    self._fetch_json(jwks_url, allow_local_http=self.allow_local_http)
+                )
                 self._expires_at = time.monotonic() + JWKS_CACHE_SECONDS
                 return self._key_set
             except (OSError, ValueError, TypeError, JoseError) as error:
@@ -84,9 +99,32 @@ class JwksCache:
                 raise JwksUnavailable("unable to load provider signing keys") from error
 
     @staticmethod
-    def _fetch_json(url):
+    def _validate_url(url, allow_local_http=False):
+        try:
+            parsed = urlsplit(url)
+            host = parsed.hostname or ""
+            local = host.lower() == "localhost"
+            try:
+                local = local or ip_address(host).is_loopback
+            except ValueError:
+                pass
+            if parsed.scheme != "https" and not (
+                allow_local_http and parsed.scheme == "http" and local
+            ):
+                raise JwksUnavailable("identity provider URLs must use HTTPS")
+            if not host or parsed.username or parsed.password or parsed.fragment:
+                raise JwksUnavailable("invalid identity provider URL")
+        except (TypeError, ValueError) as error:
+            if isinstance(error, JwksUnavailable):
+                raise
+            raise JwksUnavailable("invalid identity provider URL") from error
+
+    @staticmethod
+    def _fetch_json(url, *, allow_local_http=False):
+        JwksCache._validate_url(url, allow_local_http)
         request = Request(url, headers={"Accept": "application/json"})
         with urlopen(request, timeout=5) as response:
+            JwksCache._validate_url(getattr(response, "geturl", lambda: url)(), allow_local_http)
             body = response.read(JWKS_MAX_BYTES + 1)
         if len(body) > JWKS_MAX_BYTES:
             raise JwksUnavailable("identity provider response exceeds the configured limit")
@@ -176,4 +214,10 @@ def initialize_jwks_cache(app):
     issuer = app.config.get("PORTAL_OIDC_ISSUER")
     jwks_url = app.config.get("PORTAL_OIDC_JWKS_URL")
     if issuer:
-        app.extensions["portal_jwks_cache"] = JwksCache(issuer, jwks_url or None)
+        allow_local_http = (
+            app.config.get("PORTAL_DEV_MODE") is True
+            and app.config.get("PORTAL_ENVIRONMENT") == "development"
+        )
+        app.extensions["portal_jwks_cache"] = JwksCache(
+            issuer, jwks_url or None, allow_local_http=allow_local_http
+        )
