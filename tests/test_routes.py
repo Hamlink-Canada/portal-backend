@@ -7,6 +7,7 @@ from rpt_common.models import Entity, EntitySuperAdmin, NodeCredential
 from sqlalchemy import select
 
 from portal_backend.models import PortalEntityMember, PortalEntityProfile, Repeater, Site
+from portal_backend.utils.site_ids import site_code_options
 
 
 def auth(user="alice"):
@@ -385,6 +386,13 @@ def test_system_admin_can_reassign_reserved_site_id_without_changing_site_code(
         assert session.get(SiteIdAllocation, "25010").site_pk is None
         assert session.get(SiteIdAllocation, "26999").site_pk == site_pk
         assert session.get(SiteIdAllocation, "26999").site_code == "25"
+        options = site_code_options(
+            session, "CA", client.application.config["PORTAL_SITE_CODES_FILE"]
+        )
+        assert options == [
+            {"site_code": "25", "available_numbers": 999},
+            {"site_code": "26", "available_numbers": 999},
+        ]
 
 
 def test_site_code_and_explicit_id_change_does_not_allocate_intermediate_id(
