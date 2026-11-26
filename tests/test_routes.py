@@ -405,6 +405,54 @@ def test_site_code_and_explicit_id_change_does_not_allocate_intermediate_id(
         assert session.get(SiteIdAllocation, "26999").site_pk == site_pk
 
 
+def test_explicit_id_reuses_reservation_when_site_code_capacity_is_exhausted(
+    client, session_factory, site_factory
+):
+    from portal_backend.models import SiteIdAllocation
+
+    site_pk = site_factory(owner="alice", site_id="25010")
+    with session_factory() as session, session.begin():
+        session.add_all(
+            [
+                SiteIdAllocation(
+                    site_id=f"26{suffix:03d}",
+                    country_code="CA",
+                    site_code="26",
+                    site_pk=None,
+                )
+                for suffix in range(1000)
+            ]
+        )
+
+    response = client.patch(
+        f"/api/v1/sites/{site_pk}",
+        headers=auth("root"),
+        json={"site_code": "26", "site_id": "26999"},
+    )
+    assert response.status_code == 200
+    with session_factory() as session:
+        assert session.get(SiteIdAllocation, "26999").site_pk == site_pk
+
+
+def test_site_id_zero_is_rejected_without_changing_reservation(client, session_factory, site_factory):
+    from portal_backend.models import SiteIdAllocation
+
+    site_pk = site_factory(owner="alice", site_id="25020")
+    with session_factory() as session, session.begin():
+        session.add(
+            SiteIdAllocation(
+                site_id="25020", country_code="CA", site_code="25", site_pk=site_pk
+            )
+        )
+    response = client.patch(
+        f"/api/v1/sites/{site_pk}", headers=auth("root"), json={"site_id": "00000"}
+    )
+    assert response.status_code == 422
+    with session_factory() as session:
+        assert session.get(Site, site_pk).site_id == "25020"
+        assert session.get(SiteIdAllocation, "25020").site_pk == site_pk
+
+
 @pytest.mark.parametrize("site_id", ["1234", "12A45", "１２３４５"])
 def test_site_id_edit_rejects_invalid_values(client, site_factory, site_id):
     site_pk = site_factory(owner="alice", site_id="25020")

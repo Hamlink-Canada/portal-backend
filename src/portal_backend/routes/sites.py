@@ -249,7 +249,15 @@ def update_site(data, site_pk):
     claims = g.access_token_claims
     try:
         with get_session_factory()() as session:
-            site = session.scalar(select(Site).where(Site.id == site_pk).with_for_update())
+            site = session.get(Site, site_pk)
+            if site is None or not can_manage_site(session, site, claims):
+                return failure("site_not_found", 404)
+            site = session.scalar(
+                select(Site)
+                .where(Site.id == site_pk)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
             if site is None or not can_manage_site(session, site, claims):
                 return failure("site_not_found", 404)
 
@@ -320,14 +328,21 @@ def update_site(data, site_pk):
                 )
                 eligible = [item for item in options if item["available_numbers"] > 0]
                 eligible_codes = {item["site_code"] for item in eligible}
+                configured_codes = {item["site_code"] for item in options}
+                allowed_codes = configured_codes if "site_id" in data else eligible_codes
                 if selected_code is None:
-                    if site.site_code in eligible_codes and new_country == site.country_code:
+                    if site.site_code in allowed_codes and new_country == site.country_code:
                         selected_code = site.site_code
-                    elif len(eligible) == 1:
-                        selected_code = eligible[0]["site_code"]
+                    elif (
+                        "site_id" in data
+                        and data["site_id"][:2] in allowed_codes
+                    ):
+                        selected_code = data["site_id"][:2]
+                    elif len(allowed_codes) == 1:
+                        selected_code = next(iter(allowed_codes))
                     else:
                         return failure("site_code_selection_required", 400)
-                if selected_code not in eligible_codes:
+                if selected_code not in allowed_codes:
                     return failure("invalid_site_code", 400)
 
                 previous_allocation = (

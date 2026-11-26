@@ -119,7 +119,7 @@ class UpdateSiteSchema(StrictSchema):
     longitude = fields.Float(allow_none=True, validate=validate.Range(min=-180, max=180))
     numbering_mode = fields.String(validate=validate.OneOf(("short", "extended")))
     site_code = fields.String(validate=validate.Regexp(SITE_CODE_RE))
-    site_id = fields.String(validate=validate.Regexp(r"^[0-9]{5}$"))
+    site_id = fields.String(validate=[validate.Regexp(r"^[0-9]{5}$"), validate.NoneOf(("00000",))])
 
     @validates_schema
     def validate_site_update(self, data, **kwargs):

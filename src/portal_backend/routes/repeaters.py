@@ -116,6 +116,14 @@ def create_repeater(data, site_pk):
             site = session.get(Site, site_pk)
             if site is None or not can_manage_site(session, site, g.access_token_claims):
                 return failure("site_not_found", 404)
+            site = session.scalar(
+                select(Site)
+                .where(Site.id == site_pk)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if site is None or not can_manage_site(session, site, g.access_token_claims):
+                return failure("site_not_found", 404)
             if not site.site_id:
                 return failure("site_id_required", 409)
 

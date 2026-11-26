@@ -66,7 +66,7 @@ def test_update_site_rejects_empty_and_incomplete_coordinate_updates():
         UpdateSiteSchema().load({"latitude": 45.5})
 
 
-@pytest.mark.parametrize("site_id", ["1234", "123456", "12A45", "１２３４５"])
+@pytest.mark.parametrize("site_id", ["1234", "123456", "12A45", "１２３４５", "00000"])
 def test_update_site_rejects_site_ids_that_are_not_five_ascii_digits(site_id):
     with pytest.raises(ValidationError):
         UpdateSiteSchema().load({"site_id": site_id})

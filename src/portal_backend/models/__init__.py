@@ -97,6 +97,7 @@ class Site(Base):
             or len(value) != 5
             or not value.isascii()
             or not value.isdigit()
+            or value == "00000"
         ):
             raise ValueError("invalid Site ID")
         return value
