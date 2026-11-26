@@ -394,13 +394,13 @@ def update_site(data, site_pk):
                         allocation = SiteIdAllocation(
                             site_id=requested_site_id,
                             country_code=site.country_code,
-                            site_code=requested_site_id[:2],
+                            site_code=site.site_code,
                             site_pk=site.id,
                         )
                         session.add(allocation)
                     else:
                         allocation.country_code = site.country_code
-                        allocation.site_code = requested_site_id[:2]
+                        allocation.site_code = site.site_code
                         allocation.site_pk = site.id
                     site.site_id = requested_site_id
 
