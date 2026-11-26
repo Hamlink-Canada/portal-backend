@@ -128,15 +128,23 @@ def create_repeater(data, site_pk):
                 return failure("site_id_required", 409)
 
             if site.numbering_mode == "short":
-                if session.scalar(select(Repeater.node_id).where(Repeater.site_id == site_pk)):
+                if session.scalar(
+                    select(Repeater.node_id).where(Repeater.site_id == site_pk).limit(1)
+                ):
                     return failure("site_numbering_capacity_reached", 409)
                 node_id = int(site.site_id)
+                if session.get(Repeater, node_id) is not None:
+                    return failure("node_id_already_exists", 409)
+                if session.get(NodeCredential, node_id) is not None:
+                    return failure("node_id_credential_already_exists", 409)
             else:
-                existing = set(
-                    session.scalars(select(Repeater.node_id).where(Repeater.site_id == site_pk)).all()
-                )
                 suffix = next(
-                    (value for value in range(10) if int(f"{site.site_id}{value}") not in existing),
+                    (
+                        value
+                        for value in range(10)
+                        if session.get(Repeater, int(f"{site.site_id}{value}")) is None
+                        and session.get(NodeCredential, int(f"{site.site_id}{value}")) is None
+                    ),
                     None,
                 )
                 if suffix is None:

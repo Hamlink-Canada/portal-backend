@@ -513,6 +513,23 @@ def test_repeater_create_toggle_and_rotate_keeps_secrets_private(
     assert empty_repeaters["pagination"]["total"] == 0
 
 
+def test_extended_repeater_skips_node_ids_occupied_by_other_sites(
+    client, site_factory, session_factory
+):
+    site_id = site_factory(numbering_mode="extended", site_id="02502")
+    other_site_id = site_factory(site_id="26000")
+    with session_factory() as session, session.begin():
+        session.add(Repeater(node_id=25020, site_id=other_site_id, call_sign="VE3XYZ"))
+        session.add(NodeCredential(node_id=25020, password="existing-secret", enabled=True))
+
+    response = client.post(
+        f"/api/v1/sites/{site_id}/repeaters", headers=auth(), json={"call_sign": "VE3ABC"}
+    )
+
+    assert response.status_code == 201
+    assert response.json["repeater"]["node_id"] == 25021
+
+
 def test_resource_lists_search_and_paginate_on_the_server(client, session_factory, site_factory):
     with session_factory() as session, session.begin():
         for name in ("Searchable Club North", "Searchable Club South"):
