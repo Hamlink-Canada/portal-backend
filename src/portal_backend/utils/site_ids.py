@@ -13,10 +13,11 @@ LOCAL_NUMBER_COUNT = 1000
 
 def site_code_options(session, country_code, mapping_path=None):
     codes = site_codes_for_country(country_code, mapping_path)
+    site_id_prefix = func.substr(SiteIdAllocation.site_id, 1, 2)
     rows = session.execute(
-        select(SiteIdAllocation.site_code, func.count())
-        .where(SiteIdAllocation.site_code.in_(codes))
-        .group_by(SiteIdAllocation.site_code)
+        select(site_id_prefix, func.count())
+        .where(site_id_prefix.in_(codes))
+        .group_by(site_id_prefix)
     ).all()
     reserved = dict(rows)
     return [
