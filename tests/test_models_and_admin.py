@@ -23,6 +23,7 @@ from portal_backend.models import (
         ({"country_code": "CAN"}, "invalid country"),
         ({"site_code": "99"}, "invalid site code"),
         ({"site_id": "12"}, "invalid Site ID"),
+        ({"site_id": "00000"}, "invalid Site ID"),
         ({"name": "   "}, "invalid site name"),
         ({"numbering_mode": "unknown"}, "invalid site numbering mode"),
     ],

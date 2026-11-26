@@ -116,19 +116,35 @@ def create_repeater(data, site_pk):
             site = session.get(Site, site_pk)
             if site is None or not can_manage_site(session, site, g.access_token_claims):
                 return failure("site_not_found", 404)
+            site = session.scalar(
+                select(Site)
+                .where(Site.id == site_pk)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if site is None or not can_manage_site(session, site, g.access_token_claims):
+                return failure("site_not_found", 404)
             if not site.site_id:
                 return failure("site_id_required", 409)
 
             if site.numbering_mode == "short":
-                if session.scalar(select(Repeater.node_id).where(Repeater.site_id == site_pk)):
+                if session.scalar(
+                    select(Repeater.node_id).where(Repeater.site_id == site_pk).limit(1)
+                ):
                     return failure("site_numbering_capacity_reached", 409)
                 node_id = int(site.site_id)
+                if session.get(Repeater, node_id) is not None:
+                    return failure("node_id_already_exists", 409)
+                if session.get(NodeCredential, node_id) is not None:
+                    return failure("node_id_credential_already_exists", 409)
             else:
-                existing = set(
-                    session.scalars(select(Repeater.node_id).where(Repeater.site_id == site_pk)).all()
-                )
                 suffix = next(
-                    (value for value in range(10) if int(f"{site.site_id}{value}") not in existing),
+                    (
+                        value
+                        for value in range(10)
+                        if session.get(Repeater, int(f"{site.site_id}{value}")) is None
+                        and session.get(NodeCredential, int(f"{site.site_id}{value}")) is None
+                    ),
                     None,
                 )
                 if suffix is None:

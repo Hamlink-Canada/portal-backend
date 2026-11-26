@@ -129,16 +129,16 @@ def create_site(data):
             if owner_entity_id is not None:
                 # Lock the Entity row while enforcing its Site quota.
                 entity = session.scalar(
-                    select(Entity)
-                    .where(Entity.id == owner_entity_id)
-                    .with_for_update()
+                    select(Entity).where(Entity.id == owner_entity_id).with_for_update()
                 )
                 if entity is None or not can_manage_entity(session, owner_entity_id, claims):
                     return failure("forbidden", 403)
                 profile = session.get(PortalEntityProfile, owner_entity_id)
                 max_sites = profile.max_sites if profile else 5
                 current_count = session.scalar(
-                    select(func.count()).select_from(Site).where(Site.owner_entity_id == owner_entity_id)
+                    select(func.count())
+                    .select_from(Site)
+                    .where(Site.owner_entity_id == owner_entity_id)
                 )
                 if current_count >= max_sites:
                     return failure("entity_max_sites_exceeded", 409)
@@ -191,7 +191,9 @@ def create_site(data):
 def get_site(site_pk):
     try:
         with get_session_factory()() as session:
-            site = session.get(Site, site_pk)
+            # Serialize identity allocation and authorization against concurrent
+            # edits to the same Site (PostgreSQL honors this row lock).
+            site = session.get(Site, site_pk, with_for_update=True)
             if site is None or not can_view_site(session, site, g.access_token_claims):
                 return failure("site_not_found", 404)
             serialized = _site_dict(session, site)
@@ -232,9 +234,7 @@ def list_repeaters(args, site_pk):
             response_items = []
             for item in items:
                 serialized = item.to_dict(lifetime_seconds=lifetime)
-                serialized["can_manage"] = can_manage_repeater(
-                    session, item, g.access_token_claims
-                )
+                serialized["can_manage"] = can_manage_repeater(session, item, g.access_token_claims)
                 response_items.append(serialized)
             return jsonify(paginated_response(response_items, pagination))
     except RuntimeError:
@@ -252,6 +252,17 @@ def update_site(data, site_pk):
             site = session.get(Site, site_pk)
             if site is None or not can_manage_site(session, site, claims):
                 return failure("site_not_found", 404)
+            site = session.scalar(
+                select(Site)
+                .where(Site.id == site_pk)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if site is None or not can_manage_site(session, site, claims):
+                return failure("site_not_found", 404)
+
+            if "site_id" in data and not is_system_super_admin(claims):
+                return failure("site_identity_system_admin_required", 403)
 
             if "name" in data:
                 name = data["name"].strip()
@@ -268,19 +279,18 @@ def update_site(data, site_pk):
             if "description" in data:
                 site.description = data["description"]
 
-            repeaters_exist = session.scalar(
-                select(Repeater.node_id).where(Repeater.site_id == site.id).limit(1)
-            ) is not None
+            repeaters_exist = (
+                session.scalar(select(Repeater.node_id).where(Repeater.site_id == site.id).limit(1))
+                is not None
+            )
             if "numbering_mode" in data and data["numbering_mode"] != site.numbering_mode:
                 if not is_system_super_admin(claims):
                     return failure("site_identity_system_admin_required", 403)
-                if repeaters_exist and not is_system_super_admin(claims):
+                if repeaters_exist:
                     return failure("numbering_mode_locked_after_repeater_creation", 409)
                 site.numbering_mode = data["numbering_mode"]
 
-            location_changed = any(
-                key in data for key in ("grid_square", "latitude", "longitude")
-            )
+            location_changed = any(key in data for key in ("grid_square", "latitude", "longitude"))
             grid, latitude, longitude = site.grid_square, site.latitude, site.longitude
             new_country = site.country_code
             if location_changed:
@@ -297,7 +307,9 @@ def update_site(data, site_pk):
                     return failure(str(error), 400)
 
                 moved = (grid, latitude, longitude) != (
-                    site.grid_square, site.latitude, site.longitude
+                    site.grid_square,
+                    site.latitude,
+                    site.longitude,
                 )
                 if moved and not is_system_super_admin(claims):
                     return failure("site_location_system_admin_required", 403)
@@ -309,21 +321,28 @@ def update_site(data, site_pk):
             if identity_change:
                 if not is_system_super_admin(claims):
                     return failure("site_identity_system_admin_required", 403)
-                if repeaters_exist and not is_system_super_admin(claims):
+                if repeaters_exist:
                     return failure("site_code_locked_after_repeater_creation", 409)
                 options = site_code_options(
                     session, new_country, current_app.config.get("PORTAL_SITE_CODES_FILE")
                 )
                 eligible = [item for item in options if item["available_numbers"] > 0]
                 eligible_codes = {item["site_code"] for item in eligible}
+                configured_codes = {item["site_code"] for item in options}
+                allowed_codes = configured_codes if "site_id" in data else eligible_codes
                 if selected_code is None:
-                    if site.site_code in eligible_codes and new_country == site.country_code:
+                    if site.site_code in allowed_codes and new_country == site.country_code:
                         selected_code = site.site_code
-                    elif len(eligible) == 1:
-                        selected_code = eligible[0]["site_code"]
+                    elif (
+                        "site_id" in data
+                        and data["site_id"][:2] in allowed_codes
+                    ):
+                        selected_code = data["site_id"][:2]
+                    elif len(allowed_codes) == 1:
+                        selected_code = next(iter(allowed_codes))
                     else:
                         return failure("site_code_selection_required", 400)
-                if selected_code not in eligible_codes:
+                if selected_code not in allowed_codes:
                     return failure("invalid_site_code", 400)
 
                 previous_allocation = (
@@ -338,16 +357,52 @@ def update_site(data, site_pk):
                 site.latitude = latitude
                 site.longitude = longitude
                 session.flush()
-                allocate_site_id(
-                    session,
-                    site,
-                    selected_site_code=selected_code,
-                    mapping_path=current_app.config.get("PORTAL_SITE_CODES_FILE"),
-                )
+                if "site_id" not in data:
+                    allocate_site_id(
+                        session,
+                        site,
+                        selected_site_code=selected_code,
+                        mapping_path=current_app.config.get("PORTAL_SITE_CODES_FILE"),
+                    )
             elif location_changed:
                 site.grid_square = grid
                 site.latitude = latitude
                 site.longitude = longitude
+
+            if "site_id" in data:
+                requested_site_id = data["site_id"]
+                if requested_site_id != site.site_id:
+                    if repeaters_exist:
+                        return failure("site_id_locked_after_repeater_creation", 409)
+                    assigned_site = session.scalar(
+                        select(Site.id).where(
+                            Site.site_id == requested_site_id,
+                            Site.id != site.id,
+                        )
+                    )
+                    if assigned_site is not None:
+                        return failure("site_id_already_assigned", 409)
+
+                    previous_allocation = (
+                        session.get(SiteIdAllocation, site.site_id) if site.site_id else None
+                    )
+                    if previous_allocation is not None:
+                        previous_allocation.site_pk = None
+
+                    allocation = session.get(SiteIdAllocation, requested_site_id)
+                    if allocation is None:
+                        allocation = SiteIdAllocation(
+                            site_id=requested_site_id,
+                            country_code=site.country_code,
+                            site_code=requested_site_id[:2],
+                            site_pk=site.id,
+                        )
+                        session.add(allocation)
+                    else:
+                        allocation.country_code = site.country_code
+                        allocation.site_code = requested_site_id[:2]
+                        allocation.site_pk = site.id
+                    site.site_id = requested_site_id
 
             session.commit()
             return jsonify(_site_dict(session, site))

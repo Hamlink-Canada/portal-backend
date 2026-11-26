@@ -2,6 +2,7 @@
 
 import json
 
+import pytest
 from rpt_common.models import Entity, EntitySuperAdmin, NodeCredential
 from sqlalchemy import select
 
@@ -307,6 +308,160 @@ def test_site_create_validation_allocation_and_owner_policy(client, monkeypatch,
         assert session.scalar(select(Site.site_id).where(Site.id == site_id)) == "25015"
 
 
+def test_site_id_edits_are_system_admin_only_and_keep_allocations_consistent(
+    client, session_factory, site_factory
+):
+    from portal_backend.models import SiteIdAllocation
+
+    site_pk = site_factory(owner="alice", site_id="25001")
+    other_site_pk = site_factory(owner="bob", site_id="25002")
+
+    denied = client.patch(
+        f"/api/v1/sites/{site_pk}", headers=auth(), json={"site_id": "25003"}
+    )
+    assert denied.status_code == 403
+
+    updated = client.patch(
+        f"/api/v1/sites/{site_pk}", headers=auth("root"), json={"site_id": "25003"}
+    )
+    assert updated.status_code == 200
+    assert updated.json["site_id"] == "25003"
+
+    duplicate = client.patch(
+        f"/api/v1/sites/{site_pk}", headers=auth("root"), json={"site_id": "25002"}
+    )
+    assert duplicate.status_code == 409
+    with session_factory() as session:
+        assert session.get(SiteIdAllocation, "25003").site_pk == site_pk
+        assert session.get(SiteIdAllocation, "25002") is None
+        assert session.get(Site, other_site_pk).site_id == "25002"
+        assert session.get(Site, site_pk).site_id == "25003"
+
+
+def test_system_admin_cannot_change_site_identity_after_repeater_creation(
+    client, session_factory, site_factory
+):
+    from portal_backend.models import Repeater
+
+    site_pk = site_factory(owner="alice", site_id="25050")
+    with session_factory() as session, session.begin():
+        session.add(Repeater(node_id=250500, site_id=site_pk, call_sign="VE3ABC"))
+
+    response = client.patch(
+        f"/api/v1/sites/{site_pk}", headers=auth("root"), json={"site_id": "26050"}
+    )
+    assert response.status_code == 409
+    assert response.json["error"] == "site_id_locked_after_repeater_creation"
+    with session_factory() as session:
+        assert session.get(Site, site_pk).site_id == "25050"
+
+
+def test_system_admin_can_reassign_a_previously_reserved_unassigned_site_id(
+    client, session_factory, site_factory
+):
+    from portal_backend.models import SiteIdAllocation
+
+    site_pk = site_factory(owner="alice", site_id="25010")
+    with session_factory() as session, session.begin():
+        session.add_all(
+            [
+                SiteIdAllocation(
+                    site_id="25010", country_code="CA", site_code="25", site_pk=site_pk
+                ),
+                SiteIdAllocation(
+                    site_id="26999", country_code="CA", site_code="26", site_pk=None
+                ),
+            ]
+        )
+
+    updated = client.patch(
+        f"/api/v1/sites/{site_pk}", headers=auth("root"), json={"site_id": "26999"}
+    )
+    assert updated.status_code == 200
+    assert updated.json["site_id"] == "26999"
+
+    with session_factory() as session:
+        assert session.get(Site, site_pk).site_id == "26999"
+        assert session.get(SiteIdAllocation, "25010").site_pk is None
+        assert session.get(SiteIdAllocation, "26999").site_pk == site_pk
+        assert session.get(SiteIdAllocation, "26999").site_code == "26"
+
+
+def test_site_code_and_explicit_id_change_does_not_allocate_intermediate_id(
+    client, session_factory, site_factory, monkeypatch
+):
+    from portal_backend.models import SiteIdAllocation
+
+    monkeypatch.setattr("portal_backend.utils.site_ids.secrets.randbelow", lambda limit: 42)
+    site_pk = site_factory(owner="alice", site_id="25010")
+    response = client.patch(
+        f"/api/v1/sites/{site_pk}",
+        headers=auth("root"),
+        json={"site_code": "26", "site_id": "26999"},
+    )
+    assert response.status_code == 200
+    with session_factory() as session:
+        assert session.get(SiteIdAllocation, "26042") is None
+        assert session.get(SiteIdAllocation, "26999").site_pk == site_pk
+
+
+def test_explicit_id_reuses_reservation_when_site_code_capacity_is_exhausted(
+    client, session_factory, site_factory
+):
+    from portal_backend.models import SiteIdAllocation
+
+    site_pk = site_factory(owner="alice", site_id="25010")
+    with session_factory() as session, session.begin():
+        session.add_all(
+            [
+                SiteIdAllocation(
+                    site_id=f"26{suffix:03d}",
+                    country_code="CA",
+                    site_code="26",
+                    site_pk=None,
+                )
+                for suffix in range(1000)
+            ]
+        )
+
+    response = client.patch(
+        f"/api/v1/sites/{site_pk}",
+        headers=auth("root"),
+        json={"site_code": "26", "site_id": "26999"},
+    )
+    assert response.status_code == 200
+    with session_factory() as session:
+        assert session.get(SiteIdAllocation, "26999").site_pk == site_pk
+
+
+def test_site_id_zero_is_rejected_without_changing_reservation(client, session_factory, site_factory):
+    from portal_backend.models import SiteIdAllocation
+
+    site_pk = site_factory(owner="alice", site_id="25020")
+    with session_factory() as session, session.begin():
+        session.add(
+            SiteIdAllocation(
+                site_id="25020", country_code="CA", site_code="25", site_pk=site_pk
+            )
+        )
+    response = client.patch(
+        f"/api/v1/sites/{site_pk}", headers=auth("root"), json={"site_id": "00000"}
+    )
+    assert response.status_code == 422
+    with session_factory() as session:
+        assert session.get(Site, site_pk).site_id == "25020"
+        assert session.get(SiteIdAllocation, "25020").site_pk == site_pk
+
+
+@pytest.mark.parametrize("site_id", ["1234", "12A45", "１２３４５"])
+def test_site_id_edit_rejects_invalid_values(client, site_factory, site_id):
+    site_pk = site_factory(owner="alice", site_id="25020")
+    response = client.patch(
+        f"/api/v1/sites/{site_pk}", headers=auth("root"), json={"site_id": site_id}
+    )
+    assert response.status_code == 422
+
+
 def test_site_repeaters_and_repeaters_list_are_owner_scoped(client, site_factory):
     own_site_id = site_factory(owner="alice")
     other_site_id = site_factory(owner="bob", site_id="26000")
@@ -356,6 +511,23 @@ def test_repeater_create_toggle_and_rotate_keeps_secrets_private(
     empty_repeaters = client.get("/api/v1/repeaters", headers=auth("bob")).json
     assert empty_repeaters["items"] == []
     assert empty_repeaters["pagination"]["total"] == 0
+
+
+def test_extended_repeater_skips_node_ids_occupied_by_other_sites(
+    client, site_factory, session_factory
+):
+    site_id = site_factory(numbering_mode="extended", site_id="02502")
+    other_site_id = site_factory(site_id="26000")
+    with session_factory() as session, session.begin():
+        session.add(Repeater(node_id=25020, site_id=other_site_id, call_sign="VE3XYZ"))
+        session.add(NodeCredential(node_id=25020, password="existing-secret", enabled=True))
+
+    response = client.post(
+        f"/api/v1/sites/{site_id}/repeaters", headers=auth(), json={"call_sign": "VE3ABC"}
+    )
+
+    assert response.status_code == 201
+    assert response.json["repeater"]["node_id"] == 25021
 
 
 def test_resource_lists_search_and_paginate_on_the_server(client, session_factory, site_factory):

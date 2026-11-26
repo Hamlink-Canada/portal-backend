@@ -11,9 +11,7 @@ def test_dynaconf_precedence_and_portal_prefix(tmp_path, monkeypatch):
         'display_name = "File Portal"\nbind_port = 5010\napi_audience = "file-api"\n',
         encoding="utf-8",
     )
-    (tmp_path / ".secrets.toml").write_text(
-        'api_audience = "secret-file-api"\n', encoding="utf-8"
-    )
+    (tmp_path / ".secrets.toml").write_text('api_audience = "secret-file-api"\n', encoding="utf-8")
     monkeypatch.setenv("PORTAL_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("PORTAL_DISPLAY_NAME", "Environment Portal")
     monkeypatch.setenv("PORTAL_BIND_PORT", "5011")
@@ -69,6 +67,18 @@ def test_flask_config_maps_all_configured_keys():
     assert mapped["PORTAL_DATABASE_URL"] == "sqlite:///example.db"
     assert mapped["PORTAL_BIND_HOST"] == "0.0.0.0"
     assert mapped["PORTAL_BIND_PORT"] == 5050
+
+
+def test_sqlite_driver_scheme_still_enables_foreign_keys():
+    from portal_backend.database import create_database_engine
+
+    engine = create_database_engine("sqlite+pysqlite:///:memory:")
+    try:
+        assert engine.dialect.name == "sqlite"
+        with engine.connect() as connection:
+            assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar_one() == 1
+    finally:
+        engine.dispose()
 
 
 def test_production_app_requires_core_configuration():
